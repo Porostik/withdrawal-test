@@ -1,38 +1,179 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Withdraw Demo
 
-**Mock auth:** Authentication uses httpOnly cookie sessions (single-user mock). For production: rotate sessions, add CSRF mitigation for cookie-based auth, and use a proper identity provider.
+Vercel demo: https://withdrawal-test-kmi5xzw7r-porostks-projects.vercel.app/withdraw
 
-## Getting Started
+Небольшое демо-приложение с формой вывода средств.  
+Сделано как тестовое задание, основной упор на устойчивость UI, идемпотентность запросов и простую архитектуру.
 
-First, run the development server:
+Приложение позволяет:
+
+- авторизоваться (мок-логин)
+- посмотреть баланс пользователя
+- создать заявку на вывод
+- увидеть список всех выводов
+- обновлять статус заявок
+
+---
+
+# Стек
+
+- Next.js 14 (App Router)
+- TypeScript
+- Zustand — управление состоянием
+- React Hook Form + Zod — формы и валидация
+- Tailwind + shadcn/ui — UI
+- Redis (Upstash) — хранение сессий
+- Testing Library — тесты
+
+---
+
+# Основные фичи
+
+## Мок-авторизация
+
+Авторизация упрощена:
+
+- можно ввести **любой логин и пароль**
+- если пользователь новый — он автоматически создаётся
+- создаётся httpOnly cookie сессии
+
+Сессии хранятся в Redis.
+
+Это сделано для того, чтобы не хранить токены в `localStorage`.
+
+---
+
+## Балансы пользователя
+
+После создания пользователя ему автоматически выдаются стартовые балансы:
+
+| Валюта | Баланс |
+| ------ | ------ |
+| ETH    | 10     |
+| USDT   | 100    |
+| USDC   | 100    |
+
+Баланс хранится на сервере.
+
+---
+
+## Создание вывода
+
+Форма вывода содержит:
+
+- amount
+- destination
+- currency
+- confirm checkbox
+
+Кнопка отправки активна только если форма валидна.
+
+Дополнительно:
+
+- нельзя вывести больше доступного баланса
+- проверка выполняется **и на фронте, и на сервере**
+
+После успешного вывода баланс уменьшается сразу.
+
+---
+
+## Идемпотентность
+
+Каждый запрос на вывод отправляется с `idempotency_key`.
+
+Сервер проверяет:
+
+userId + idempotency_key
+
+Если такой ключ уже использовался, сервер возвращает:
+
+При этом баланс **не списывается повторно**.
+
+Это защищает от:
+
+- двойных кликов
+- повторных запросов
+- сетевых ретраев
+
+---
+
+## Список выводов
+
+Справа от формы отображается список всех выводов пользователя.
+
+Можно:
+
+- обновить статус конкретной заявки
+- обновить список целиком
+
+Для демо статус автоматически меняется на `success` через несколько секунд.
+
+---
+
+# Архитектура
+
+## Архитектура
+
+Используется облегчённый **FSD-подход (Feature-Sliced Design)**.
+
+````id="n8t9ey"
+src/
+│
+├── app/                 # страницы и route handlers (Next.js App Router)
+│
+├── entities/            # бизнес-сущности
+│   ├── withdrawal/      # модель и UI заявок на вывод
+│   ├── balance/         # баланс пользователя
+│   └── session/         # состояние авторизации
+│
+├── features/            # пользовательские сценарии
+│   └── withdrawal-create/  # создание заявки на вывод
+│
+├── shared/              # переиспользуемые утилиты
+│   ├── api/             # API-клиенты
+│   ├── lib/             # вспомогательные функции
+│   └── ui/              # базовые UI-компоненты
+│
+└── server/              # серверная логика
+    ├── inmemory/        # in-memory хранилища (demo)
+    └── auth/            # работа с сессиями
+
+---
+
+# Почему Redis
+
+Изначально данные хранились в `Map`.
+
+Но на Vercel это приводит к проблеме:
+
+Serverless-инстансы могут пересоздаваться, и in-memory данные теряются.
+
+---
+
+# Установка
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
+pnpm install
+````
+
+# Запуск
+
+```bash
 pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+# Переменные окружения:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+REDIS_URL="redis://user:password@host:15025"
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```
 
-## Learn More
+# Что можно улучшить Если развивать проект дальше:
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- хранить все данные в БД
+- добавить real-time обновление статусов
+- сделать optimistic updates
+- добавить rate limiting
+- добавить CSRF защиту
+- реализовать полноценную auth систему
