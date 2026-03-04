@@ -15,7 +15,7 @@ export async function GET(
   }
 
   const { id } = await params;
-  const result = getWithdrawal(id, userId);
+  const result = await getWithdrawal(id, userId);
   if (result.type === "not_found") {
     return NextResponse.json({ message: "Not found" }, { status: 404 });
   }

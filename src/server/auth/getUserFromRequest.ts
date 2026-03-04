@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import { getUserId } from "@/server/inmemory/sessionsRepo";
+import {} from "redis";
 
 export async function getUserFromRequest(): Promise<string | null> {
   const cookieStore = await cookies();

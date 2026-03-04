@@ -1,22 +1,28 @@
-const sessions = new Map<string, { userId: string; createdAt: number }>();
+import { getRedis } from "@/shared/redis";
 
-export function createSession(userId: string): string {
+export async function createSession(userId: string): Promise<string> {
+  const redis = await getRedis();
   const sessionId = crypto.randomUUID();
-  sessions.set(sessionId, { userId, createdAt: Date.now() });
+  await redis.set(`session:${sessionId}`, userId);
   return sessionId;
 }
 
-export function getSession(sessionId: string): { userId: string } | null {
-  const entry = sessions.get(sessionId);
+export async function getSession(
+  sessionId: string,
+): Promise<{ userId: string } | null> {
+  const redis = await getRedis();
+  const entry = await redis.get(`session:${sessionId}`);
   if (!entry) return null;
-  return { userId: entry.userId };
+  return { userId: entry };
 }
 
-export function getUserId(sessionId: string): string | null {
-  const entry = sessions.get(sessionId);
-  return entry?.userId ?? null;
+export async function getUserId(sessionId: string): Promise<string | null> {
+  const redis = await getRedis();
+  const userId = await redis.get(`session:${sessionId}`);
+  return userId ?? null;
 }
 
-export function deleteSession(sessionId: string): void {
-  sessions.delete(sessionId);
+export async function deleteSession(sessionId: string): Promise<void> {
+  const redis = await getRedis();
+  await redis.del(`session:${sessionId}`);
 }

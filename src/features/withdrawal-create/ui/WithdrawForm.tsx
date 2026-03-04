@@ -99,7 +99,7 @@ export function WithdrawForm() {
             <Label htmlFor="amount">Amount</Label>
             {!balanceLoading && (
               <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                Balance: {balanceStr}{" "}
+                Balance: {Number(balanceStr).toFixed(2)}{" "}
                 <span className="inline-flex items-center gap-1">
                   <TokenIcon currency={currency} size={14} />
                   {currency}

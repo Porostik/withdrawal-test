@@ -16,7 +16,7 @@ export async function GET(_req: Request) {
       { status: 401 }
     );
   }
-  const list = listWithdrawalsByUser(userId);
+  const list = await listWithdrawalsByUser(userId);
   return NextResponse.json(list, { status: 200 });
 }
 
@@ -49,7 +49,7 @@ export async function POST(request: Request) {
     );
   }
 
-  if (hasIdempotencyConflict(userId, idempotencyKey)) {
+  if (await hasIdempotencyConflict(userId, idempotencyKey)) {
     return NextResponse.json(
       { message: "Duplicate request" },
       { status: 409 }
@@ -103,7 +103,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const balance = getBalance(userId, currency);
+  const balance = await getBalance(userId, currency);
   if (amountNum > balance) {
     return NextResponse.json(
       { message: "Insufficient balance" },
@@ -111,7 +111,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const debitResult = debit(userId, currency, amountNum);
+  const debitResult = await debit(userId, currency, amountNum);
   if (!debitResult.ok) {
     return NextResponse.json(
       { message: "Insufficient balance" },
@@ -119,7 +119,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const result = createWithdrawal(
+  const result = await createWithdrawal(
     amountStr,
     destination,
     currency,

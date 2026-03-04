@@ -1,4 +1,5 @@
 import type { Currency } from "@/shared/lib/currency";
+import { getRedis } from "@/shared/redis";
 
 export type Withdrawal = {
   id: string;
@@ -11,10 +12,22 @@ export type Withdrawal = {
 
 type WithdrawalRecord = Withdrawal & { userId: string };
 
-const withdrawals = new Map<string, WithdrawalRecord>();
-const idempotencyByUser = new Map<string, Map<string, string>>();
-
 const PENDING_TO_SUCCESS_MS = 2000;
+
+const KEY_WITHDRAWAL = (id: string) => `withdrawal:${id}`;
+const KEY_IDEMPOTENCY = (userId: string, key: string) =>
+  `idempotency:${userId}:${key}`;
+const KEY_USER_WITHDRAWALS = (userId: string) => `user:withdrawals:${userId}`;
+
+function parseRecord(raw: string | null): WithdrawalRecord | null {
+  if (!raw) return null;
+  try {
+    const data = JSON.parse(raw) as WithdrawalRecord;
+    return data?.id && data?.userId ? data : null;
+  } catch {
+    return null;
+  }
+}
 
 function maybePromoteStatus(w: WithdrawalRecord): WithdrawalRecord {
   if (w.status !== "pending") return w;
@@ -34,33 +47,30 @@ export type GetResult =
   | { type: "ok"; data: Withdrawal }
   | { type: "not_found" };
 
-export function hasIdempotencyConflict(
+export async function hasIdempotencyConflict(
   userId: string,
   idempotencyKey: string,
-): boolean {
-  const userMap = idempotencyByUser.get(userId);
-  if (!userMap) return false;
-  const existingId = userMap.get(idempotencyKey);
+): Promise<boolean> {
+  const redis = await getRedis();
+  const existingId = await redis.get(KEY_IDEMPOTENCY(userId, idempotencyKey));
   if (!existingId) return false;
-  const existing = withdrawals.get(existingId);
+  const raw = await redis.get(KEY_WITHDRAWAL(existingId));
+  const existing = parseRecord(raw);
   return Boolean(existing && existing.userId === userId);
 }
 
-export function createWithdrawal(
+export async function createWithdrawal(
   amount: string,
   destination: string,
   currency: Currency,
   idempotencyKey: string,
   userId: string,
-): CreateResult {
-  let userMap = idempotencyByUser.get(userId);
-  if (!userMap) {
-    userMap = new Map();
-    idempotencyByUser.set(userId, userMap);
-  }
-  const existingId = userMap.get(idempotencyKey);
+): Promise<CreateResult> {
+  const redis = await getRedis();
+  const existingId = await redis.get(KEY_IDEMPOTENCY(userId, idempotencyKey));
   if (existingId) {
-    const existing = withdrawals.get(existingId);
+    const raw = await redis.get(KEY_WITHDRAWAL(existingId));
+    const existing = parseRecord(raw);
     if (existing && existing.userId === userId) return { type: "conflict" };
   }
 
@@ -75,33 +85,66 @@ export function createWithdrawal(
     created_at,
     userId,
   };
-  withdrawals.set(id, withdrawal);
-  userMap.set(idempotencyKey, id);
-  const { userId: _u, ...data } = withdrawal;
+  const json = JSON.stringify(withdrawal);
+  await redis.set(KEY_WITHDRAWAL(id), json);
+  await redis.set(KEY_IDEMPOTENCY(userId, idempotencyKey), id);
+  await redis.sAdd(KEY_USER_WITHDRAWALS(userId), id);
+
+  const { userId: _uid, ...data } = withdrawal;
+  void _uid;
   return { type: "ok", data };
 }
 
-export function getWithdrawal(id: string, userId: string): GetResult {
-  const raw = withdrawals.get(id);
-  if (!raw || raw.userId !== userId) return { type: "not_found" };
-  const updated = maybePromoteStatus(raw);
-  if (updated.status !== raw.status) withdrawals.set(id, updated);
-  const { userId: _u, ...data } = updated;
+export async function getWithdrawal(
+  id: string,
+  userId: string,
+): Promise<GetResult> {
+  const redis = await getRedis();
+  const raw = await redis.get(KEY_WITHDRAWAL(id));
+  const record = parseRecord(raw);
+  if (!record || record.userId !== userId) return { type: "not_found" };
+
+  const updated = maybePromoteStatus(record);
+  if (updated.status !== record.status) {
+    await redis.set(KEY_WITHDRAWAL(id), JSON.stringify(updated));
+  }
+  const { userId: _uid2, ...data } = updated;
+  void _uid2;
   return { type: "ok", data };
 }
 
-export function listWithdrawalsByUser(userId: string): Withdrawal[] {
-  const list: WithdrawalRecord[] = [];
-  for (const w of withdrawals.values()) {
-    if (w.userId === userId) list.push(maybePromoteStatus(w));
+export async function listWithdrawalsByUser(
+  userId: string,
+): Promise<Withdrawal[]> {
+  const redis = await getRedis();
+  const ids = await redis.sMembers(KEY_USER_WITHDRAWALS(userId));
+  if (ids.length === 0) return [];
+
+  const records: WithdrawalRecord[] = [];
+  for (const id of ids) {
+    const raw = await redis.get(KEY_WITHDRAWAL(id));
+    const record = parseRecord(raw);
+    if (record && record.userId === userId) {
+      records.push(maybePromoteStatus(record));
+    }
   }
-  for (const w of list) {
-    const current = withdrawals.get(w.id);
-    if (current && current.status !== w.status) withdrawals.set(w.id, w);
+  for (const w of records) {
+    const raw = await redis.get(KEY_WITHDRAWAL(w.id));
+    const current = parseRecord(raw);
+    if (current && current.status !== w.status) {
+      await redis.set(KEY_WITHDRAWAL(w.id), JSON.stringify(w));
+    }
   }
-  list.sort(
+  records.sort(
     (a, b) =>
       new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
   );
-  return list.map(({ userId: _u, ...data }) => data);
+  return records.map((w) => ({
+    id: w.id,
+    status: w.status,
+    amount: w.amount,
+    destination: w.destination,
+    currency: w.currency,
+    created_at: w.created_at,
+  }));
 }

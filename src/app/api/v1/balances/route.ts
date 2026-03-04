@@ -10,7 +10,7 @@ export async function GET() {
       { status: 401 }
     );
   }
-  const user = getUserById(userId);
+  const user = await getUserById(userId);
   if (!user) {
     return NextResponse.json(
       { message: "Unauthorized" },

@@ -22,8 +22,8 @@ export async function POST(request: Request) {
     );
   }
 
-  const user = getOrCreateUser(login);
-  const sessionId = createSession(user.userId);
+  const user = await getOrCreateUser(login);
+  const sessionId = await createSession(user.userId);
 
   const response = NextResponse.json(
     { userId: user.userId, login: user.login },
