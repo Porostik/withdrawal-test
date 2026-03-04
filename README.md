@@ -1,6 +1,6 @@
 # Withdraw Demo
 
-Vercel demo: https://withdrawal-test-kmi5xzw7r-porostks-projects.vercel.app/withdraw
+Vercel demo: https://withdrawal-test-two.vercel.app/withdraw
 
 Небольшое демо-приложение с формой вывода средств.  
 Сделано как тестовое задание, основной упор на устойчивость UI, идемпотентность запросов и простую архитектуру.
